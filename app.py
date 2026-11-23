@@ -11,6 +11,73 @@ st.set_page_config(
     layout="wide"
 )
 
+# Estilização visual fina para aproximar os cards e dar o acabamento premium do protótipo
+st.markdown("""
+    <style>
+    /* Estilo para a barra compacta de status */
+    .status-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px 14px;
+        background-color: #f0f4f8;
+        border-radius: 8px;
+        border-left: 4px solid #0d6efd;
+        margin-bottom: 20px;
+        align-items: center;
+    }
+    .status-title {
+        font-weight: bold;
+        color: #1e293b;
+        margin-right: 8px;
+        font-size: 0.9rem;
+    }
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        background-color: #ffffff;
+        color: #475569;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 6px;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .status-badge .count {
+        background-color: #3b82f6;
+        color: #ffffff;
+        font-size: 0.75rem;
+        border-radius: 4px;
+        padding: 0px 4px;
+        margin-left: 5px;
+    }
+    /* Estilização para deixar os cards de métricas mais encorpados */
+    [data-testid="stMetric"] {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 12px 18px !important;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    [data-testid="stMetricLabel"] {
+        color: #64748b !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
+        color: #1e293b !important;
+    }
+    /* Reduz espaços em branco excessivos */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 1rem !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 cookie_manager = stx.CookieManager(key="gerenciador_sessao")
 
 # --- 1. AUTENTICAÇÃO ---
@@ -225,11 +292,20 @@ if checar_login():
         m3.metric("Faltantes / Zeradas", faltantes)
         m4.metric("Valor Realizado", f"R$ {valor_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        # --- CONTAGEM DETALHADA DOS STATUS EXIBIDOS ---
+        # --- CONTAGEM DETALHADA EM BADGES COMPACTOS ---
         if not df_filtrado.empty:
-            resumo_status = df_filtrado["STATUS"].value_counts()
-            badges = "  |  ".join([f"**{st_nome}:** {qtd}" for st_nome, qtd in resumo_status.items()])
-            st.info(f"📌 **Quantidade por Status na seleção atual ({total} total):** {badges}")
+            resumo_status = df_filtrado["STATUS"].value_counts().items()
+            badges_html = "".join([
+                f'<span class="status-badge">{st_nome}<span class="count">{qtd}</span></span>'
+                for st_nome, qtd in resumo_status
+            ])
+            st.markdown(
+                f'<div class="status-container">'
+                f'<span class="status-title">📍 Quantidades na seleção atual ({total} total):</span>'
+                f'{badges_html}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
         st.divider()
 
