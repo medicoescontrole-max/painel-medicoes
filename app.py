@@ -181,12 +181,14 @@ def calcular_etapa_fornecedor(status_interno):
     s = str(status_interno).upper()
     if "FINANCEIRO" in s:
         return 100, "Concluído / Encaminhado ao Financeiro"
+    elif "GERENTE" in s or "VAGNER" in s:
+        return 90, "Aprovação Final da Gerência (Penúltima Etapa)"
     elif "MEDIÇÕES / CONTRATOS" in s:
-        return 85, "Conferência Final de Documentação"
+        return 80, "Conferência Final de Documentação"
     elif "FORNECEDOR" in s:
-        return 75, "Aguardando Assinatura / Retorno do Fornecedor"
-    elif any(k in s for k in ["GERENTE", "VAGNER", "TIAGO", "PEDRO", "BRUNO", "ORLANDO", "SAMUEL", "JANER", "LEYDSON", "RODRIGO"]):
-        return 50, "Em Validação e Assinaturas Internas"
+        return 65, "Aguardando Assinatura / Retorno do Fornecedor"
+    elif any(k in s for k in ["TIAGO", "PEDRO", "BRUNO", "ORLANDO", "SAMUEL", "JANER", "LEYDSON", "RODRIGO"]):
+        return 45, "Em Validação Técnica / Assinaturas Iniciais"
     elif any(k in s for k in ["PENDÊNCIA", "REVISÃO", "ADITIVO", "APROPRIAÇÃO", "ESPELHO", "SETOR"]):
         return 25, "Em Conferência Técnica / Ajustes"
     elif "SEM MEDIÇÃO" in s or "ENCERRADO" in s or s == "-":
