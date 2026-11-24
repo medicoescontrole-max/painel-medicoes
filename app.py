@@ -144,6 +144,7 @@ def processar_aba(conteudo_bytes, nome_aba):
         return pd.DataFrame()
 
     df = df.dropna(subset=["N° CONTRATO"]).copy()
+    df = df[~df["N° CONTRATO"].astype(str).str.upper().str.contains("TOTAL")].copy()
 
     cols_texto = [
         "N° CONTRATO", "EMPRESA", "CRITÉRIOS", "OBJETO", "VIGÊNCIA",
