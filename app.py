@@ -14,52 +14,6 @@ st.set_page_config(
 # Estilização visual fina para aproximar os cards e dar o acabamento premium do protótipo
 st.markdown("""
     <style>
-    /* Estilo para a barra compacta de status */
-    .status-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 10px 14px;
-        background-color: #f0f4f8;
-        border-radius: 8px;
-        border-left: 4px solid #0d6efd;
-        margin-bottom: 20px;
-        align-items: center;
-    }
-    .status-title {
-        font-weight: bold;
-        color: #1e293b;
-        margin-right: 8px;
-        font-size: 0.9rem;
-    }
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        background-color: #ffffff;
-        color: #475569;
-        font-size: 0.8rem;
-        font-weight: 600;
-        padding: 3px 8px;
-        border-radius: 6px;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    }
-    .status-badge .count {
-        background-color: #3b82f6;
-        color: #ffffff;
-        font-size: 0.75rem;
-        border-radius: 4px;
-        padding: 0px 5px;
-        margin-left: 5px;
-    }
-    .status-badge .delay-count {
-        background-color: #dc2626;
-        color: #ffffff;
-        font-size: 0.75rem;
-        border-radius: 4px;
-        padding: 0px 5px;
-        margin-left: 4px;
-    }
     /* Estilização para deixar os cards de métricas mais encorpados */
     [data-testid="stMetric"] {
         background-color: #ffffff;
@@ -305,12 +259,26 @@ if checar_login():
         modo_status = st.sidebar.radio(
             "Filtro de Status / Localização",
             ["Incluir apenas", "Excluir selecionados"],
-            horizontal=True
+            horizontal=True,
+            key="modo_status_radio"
         )
-        status_selecionados = st.sidebar.multiselect(
+
+        # Sincroniza cliques entre os botões do topo e o multiselect lateral
+        if "filtro_status_ativo" not in st.session_state:
+            st.session_state["filtro_status_ativo"] = []
+
+        selecao_valida = [s for s in st.session_state["filtro_status_ativo"] if s in lista_status]
+        st.session_state["filtro_status_ativo"] = selecao_valida
+
+        def atualizar_pelo_lateral():
+            st.session_state["filtro_status_ativo"] = st.session_state["ms_lateral"]
+
+        st.sidebar.multiselect(
             "Selecione um ou mais status:",
             options=lista_status,
-            default=[],
+            default=selecao_valida,
+            key="ms_lateral",
+            on_change=atualizar_pelo_lateral,
             format_func=lambda s: f"{s} ({contagem_base.get(s, 0)})",
             placeholder="Todos (nenhum filtro aplicado)"
         )
@@ -321,26 +289,49 @@ if checar_login():
         lista_objeto = ["Todos"] + sorted([x for x in df_base["OBJETO"].unique().tolist() if x != "-"])
         objeto_sel = st.sidebar.selectbox("Objeto", lista_objeto)
 
-        # Aplicação dos filtros
-        df_filtrado = df_base.copy()
+        # Prepara base com busca, atraso e objeto para calcular os botões clicáveis do topo
+        df_para_contagem = df_base.copy()
         if busca:
-            termo = busca.lower()
-            df_filtrado = df_filtrado[
-                df_filtrado["N° CONTRATO"].str.lower().str.contains(termo) |
-                df_filtrado["EMPRESA"].str.lower().str.contains(termo)
+            termo_c = busca.lower()
+            df_para_contagem = df_para_contagem[
+                df_para_contagem["N° CONTRATO"].str.lower().str.contains(termo_c) |
+                df_para_contagem["EMPRESA"].str.lower().str.contains(termo_c)
             ]
+        if apenas_atrasados:
+            df_para_contagem = df_para_contagem[df_para_contagem["DIAS_PARADO"].fillna(-1) >= 2]
+        if objeto_sel != "Todos":
+            df_para_contagem = df_para_contagem[df_para_contagem["OBJETO"] == objeto_sel]
 
+        resumo_status = df_para_contagem["STATUS"].value_counts()
+        atrasos_por_status = (
+            df_para_contagem[df_para_contagem["DIAS_PARADO"].fillna(-1) >= 2]["STATUS"]
+            .value_counts()
+            .to_dict()
+        )
+
+        opcoes_pills = list(resumo_status.index)
+        for s_sel in selecao_valida:
+            if s_sel not in opcoes_pills:
+                opcoes_pills.append(s_sel)
+
+        def formatar_botao_status(st_nome):
+            qtd = resumo_status.get(st_nome, 0)
+            qtd_atraso = atrasos_por_status.get(st_nome, 0)
+            if qtd_atraso > 0:
+                return f"{st_nome} ({qtd} | ⚠️ {qtd_atraso})"
+            return f"{st_nome} ({qtd})"
+
+        def atualizar_pelos_botoes():
+            st.session_state["filtro_status_ativo"] = st.session_state["pills_topo"]
+
+        # Aplica o filtro de status selecionado para gerar os dados finais da tela e do Excel
+        status_selecionados = st.session_state["filtro_status_ativo"]
+        df_filtrado = df_para_contagem.copy()
         if status_selecionados:
             if modo_status == "Incluir apenas":
                 df_filtrado = df_filtrado[df_filtrado["STATUS"].isin(status_selecionados)]
             else:
                 df_filtrado = df_filtrado[~df_filtrado["STATUS"].isin(status_selecionados)]
-
-        if apenas_atrasados:
-            df_filtrado = df_filtrado[df_filtrado["DIAS_PARADO"].fillna(-1) >= 2]
-
-        if objeto_sel != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["OBJETO"] == objeto_sel]
 
         # Prepara colunas para exibição e exportação
         colunas_desejadas = [
@@ -396,28 +387,19 @@ if checar_login():
         m3.metric("Faltantes / Zeradas", faltantes)
         m4.metric("Valor Realizado", f"R$ {valor_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        # --- CONTAGEM DETALHADA EM BADGES COMPACTOS (COM ALERTA DE 2+ DIAS POR PESSOA) ---
-        if not df_filtrado.empty:
-            resumo_status = df_filtrado["STATUS"].value_counts().items()
-            atrasos_por_status = (
-                df_filtrado[df_filtrado["DIAS_PARADO"].fillna(-1) >= 2]["STATUS"]
-                .value_counts()
-                .to_dict()
-            )
-            badges_list = []
-            for st_nome, qtd in resumo_status:
-                qtd_atraso = atrasos_por_status.get(st_nome, 0)
-                badge_atraso = f'<span class="delay-count">⚠️ {qtd_atraso}</span>' if qtd_atraso > 0 else ""
-                badges_list.append(
-                    f'<span class="status-badge">{st_nome}<span class="count">{qtd}</span>{badge_atraso}</span>'
-                )
-            badges_html = "".join(badges_list)
-            st.markdown(
-                f'<div class="status-container">'
-                f'<span class="status-title">📍 Quantidades na seleção atual ({total} total):</span>'
-                f'{badges_html}'
-                f'</div>',
-                unsafe_allow_html=True
+        # --- BOTÕES CLICÁVEIS DE STATUS ---
+        if opcoes_pills:
+            modo_txt = "incluir" if modo_status == "Incluir apenas" else "excluir"
+            st.caption(f"📍 **Clique nos botões abaixo para {modo_txt} status ({len(df_para_contagem)} na base atual):**")
+            st.pills(
+                label="Filtrar por status",
+                options=opcoes_pills,
+                default=[s for s in selecao_valida if s in opcoes_pills],
+                selection_mode="multi",
+                key="pills_topo",
+                on_change=atualizar_pelos_botoes,
+                format_func=formatar_botao_status,
+                label_visibility="collapsed"
             )
 
         st.divider()
