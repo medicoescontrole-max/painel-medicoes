@@ -331,12 +331,36 @@ if checar_login():
         colunas_existentes = [c for c in colunas_desejadas if c in df_filtrado.columns]
         df_exibir = df_filtrado[colunas_existentes].rename(columns={"VALOR_EXIBICAO": "VALOR REALIZADO"})
 
-        st.dataframe(
+        evento_tabela = st.dataframe(
             df_exibir.style.map(colorir_status, subset=["STATUS"]),
-            use_container_width=True,
+            use_container_width=False,
             hide_index=True,
-            height=600
+            height=550,
+            on_select="rerun",
+            selection_mode="single-row",
+            column_config={
+                "N° CONTRATO": st.column_config.TextColumn("N° CONTRATO", width="medium"),
+                "EMPRESA": st.column_config.TextColumn("EMPRESA", width="medium"),
+                "OBJETO": st.column_config.TextColumn("OBJETO", width="small"),
+                "VALOR REALIZADO": st.column_config.TextColumn("VALOR REALIZADO", width="medium"),
+                "N° PERÍODO": st.column_config.TextColumn("N° PERÍODO", width="small"),
+                "STATUS": st.column_config.TextColumn("STATUS", width="medium"),
+                "DATA": st.column_config.TextColumn("DATA", width="small"),
+                "ENV. FONECEDOR ?": st.column_config.TextColumn("ENV. FORN.?", width="small"),
+                "LANÇ. NO RM": st.column_config.TextColumn("LANÇ. RM", width="small"),
+                "OBS.:": st.column_config.TextColumn("OBS.:", width="large"),
+            }
         )
+
+        # Mostra a observação completa logo abaixo ao clicar em qualquer linha
+        linhas_selecionadas = evento_tabela.selection.rows
+        if linhas_selecionadas:
+            idx_linha = linhas_selecionadas[0]
+            reg = df_exibir.iloc[idx_linha]
+            st.info(
+                f"📝 **Observação completa — {reg['N° CONTRATO']} ({reg['EMPRESA']}):** "
+                f"{reg['OBS.:']}"
+            )
 
     # ==========================================================
     # VISÃO B: FORNECEDOR (RESTRITA AO CONTRATO + % PROGRESSO)
