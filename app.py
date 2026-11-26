@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import extra_streamlit_components as stx
 
 st.set_page_config(
@@ -49,8 +49,16 @@ st.markdown("""
         color: #ffffff;
         font-size: 0.75rem;
         border-radius: 4px;
-        padding: 0px 4px;
+        padding: 0px 5px;
         margin-left: 5px;
+    }
+    .status-badge .delay-count {
+        background-color: #dc2626;
+        color: #ffffff;
+        font-size: 0.75rem;
+        border-radius: 4px;
+        padding: 0px 5px;
+        margin-left: 4px;
     }
     /* Estilização para deixar os cards de métricas mais encorpados */
     [data-testid="stMetric"] {
@@ -154,7 +162,47 @@ def processar_aba(conteudo_bytes, nome_aba):
         if col in df.columns:
             df[col] = df[col].fillna("-").astype(str).str.strip()
 
-    for col_data in ["INICIO", "FIM", "DATA"]:
+    # Converte datas mantendo referência numérica da coluna DATA para cálculo de dias corridos
+    fuso_br = timezone(timedelta(hours=-3))
+    hoje_br = datetime.now(fuso_br).date()
+
+    if "DATA" in df.columns:
+        dt_status = pd.to_datetime(df["DATA"], errors="coerce")
+        df["DATA"] = dt_status.dt.strftime("%d/%m/%Y").fillna("-")
+
+        def calcular_dias(row, dt_val):
+            st_upper = str(row.get("STATUS", "")).upper()
+            vig_upper = str(row.get("VIGÊNCIA", "")).upper()
+            # Etapas já concluídas ou sem medição não contam atraso
+            if (
+                pd.isna(dt_val)
+                or "FINANCEIRO" in st_upper
+                or "SEM MEDIÇÃO" in st_upper
+                or "ENCERRADO" in st_upper
+                or "ENCERRADO" in vig_upper
+                or st_upper == "-"
+            ):
+                return None
+            dias = (hoje_br - dt_val.date()).days
+            return max(dias, 0)
+
+        df["DIAS_PARADO"] = [calcular_dias(row, dt_val) for (_, row), dt_val in zip(df.iterrows(), dt_status)]
+    else:
+        df["DIAS_PARADO"] = None
+
+    def formatar_tempo(dias):
+        if pd.isna(dias):
+            return "-"
+        d = int(dias)
+        if d == 0:
+            return "Hoje"
+        elif d == 1:
+            return "1 dia"
+        return f"{d} dias"
+
+    df["TEMPO"] = df["DIAS_PARADO"].apply(formatar_tempo)
+
+    for col_data in ["INICIO", "FIM"]:
         if col_data in df.columns:
             df[col_data] = pd.to_datetime(df[col_data], errors="coerce").dt.strftime("%d/%m/%Y").fillna("-")
 
@@ -175,6 +223,28 @@ def processar_aba(conteudo_bytes, nome_aba):
         df["VALOR_EXIBICAO"] = "-"
 
     return df
+
+# --- GERADOR DE ARQUIVO EXCEL (.XLSX) PARA DOWNLOAD ---
+def gerar_excel_bytes(df_export):
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="Medicoes_Filtradas")
+        ws = writer.sheets["Medicoes_Filtradas"]
+
+        for idx, col_name in enumerate(df_export.columns, 1):
+            col_letter = ws.cell(row=1, column=idx).column_letter
+            max_len = max(
+                df_export[col_name].astype(str).map(len).max() if not df_export.empty else 10,
+                len(str(col_name))
+            ) + 4
+            ws.column_dimensions[col_letter].width = min(max_len, 45)
+
+            if col_name == "VALOR REALIZADO":
+                for row_idx in range(2, len(df_export) + 2):
+                    cell = ws.cell(row=row_idx, column=idx)
+                    cell.number_format = 'R$ #,##0.00'
+
+    return buffer.getvalue()
 
 # --- 3. REGRA DE TRADUÇÃO DE % PARA O FORNECEDOR ---
 def calcular_etapa_fornecedor(status_interno):
@@ -202,21 +272,6 @@ if checar_login():
     escopo = str(permissoes.get(usuario_logado, "TODOS")).strip()
     eh_interno = (escopo.upper() == "TODOS")
 
-    topo_esq, topo_dir = st.columns([4, 1])
-    with topo_esq:
-        st.title("📊 Status de Medições" if eh_interno else "📋 Acompanhamento de Medição")
-    with topo_dir:
-        c_btn1, c_btn2 = st.columns(2)
-        with c_btn1:
-            if st.button("🔄 Atualizar", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
-        with c_btn2:
-            if st.button("Sair", use_container_width=True):
-                st.session_state["autenticado"] = False
-                cookie_manager.delete("usuario_medicoes")
-                st.rerun()
-
     try:
         conteudo_excel = baixar_arquivo_drive()
         abas_disponiveis = listar_abas(conteudo_excel)
@@ -243,7 +298,6 @@ if checar_login():
         busca = st.sidebar.text_input("Buscar Contrato ou Empresa", placeholder="Ex: 053-0017 ou ARMAC")
         df_base = df if vigencia_sel == "Todos" else df[df["VIGÊNCIA"] == vigencia_sel]
 
-        # Contagem prévia por status para exibir nas opções do filtro
         contagem_base = df_base["STATUS"].value_counts().to_dict()
         lista_status = sorted(contagem_base.keys())
 
@@ -260,6 +314,8 @@ if checar_login():
             format_func=lambda s: f"{s} ({contagem_base.get(s, 0)})",
             placeholder="Todos (nenhum filtro aplicado)"
         )
+
+        apenas_atrasados = st.sidebar.checkbox("⚠️ Mostrar apenas paradas há 2+ dias", value=False)
 
         st.sidebar.markdown("---")
         lista_objeto = ["Todos"] + sorted([x for x in df_base["OBJETO"].unique().tolist() if x != "-"])
@@ -280,8 +336,53 @@ if checar_login():
             else:
                 df_filtrado = df_filtrado[~df_filtrado["STATUS"].isin(status_selecionados)]
 
+        if apenas_atrasados:
+            df_filtrado = df_filtrado[df_filtrado["DIAS_PARADO"].fillna(-1) >= 2]
+
         if objeto_sel != "Todos":
             df_filtrado = df_filtrado[df_filtrado["OBJETO"] == objeto_sel]
+
+        # Prepara colunas para exibição e exportação
+        colunas_desejadas = [
+            "N° CONTRATO", "EMPRESA", "OBJETO", "VALOR_EXIBICAO",
+            "N° PERÍODO", "STATUS", "DATA", "TEMPO", "ENV. FONECEDOR ?", "LANÇ. NO RM", "OBS.:"
+        ]
+        colunas_existentes = [c for c in colunas_desejadas if c in df_filtrado.columns]
+        df_exibir = df_filtrado[colunas_existentes].rename(columns={"VALOR_EXIBICAO": "VALOR REALIZADO"})
+
+        # Prepara versão numérica limpa para o Excel
+        colunas_excel = [
+            "N° CONTRATO", "EMPRESA", "OBJETO", "VIGÊNCIA", "INICIO", "FIM", "VALOR_NUM",
+            "N° PERÍODO", "STATUS", "DATA", "TEMPO", "ENV. FONECEDOR ?", "LANÇ. NO RM", "OBS.:"
+        ]
+        colunas_excel_existentes = [c for c in colunas_excel if c in df_filtrado.columns]
+        df_para_excel = df_filtrado[colunas_excel_existentes].rename(columns={"VALOR_NUM": "VALOR REALIZADO"})
+        arquivo_xlsx = gerar_excel_bytes(df_para_excel)
+        nome_arquivo = f"Medicoes_{aba_selecionada.replace(' ', '_').replace('.', '')}.xlsx"
+
+        # Cabeçalho com botões Atualizar, Excel e Sair
+        topo_esq, topo_dir = st.columns([3.2, 1.8])
+        with topo_esq:
+            st.title("📊 Status de Medições")
+        with topo_dir:
+            c_btn1, c_btn2, c_btn3 = st.columns(3)
+            with c_btn1:
+                if st.button("🔄 Atualizar", use_container_width=True):
+                    st.cache_data.clear()
+                    st.rerun()
+            with c_btn2:
+                st.download_button(
+                    label="📥 Excel",
+                    data=arquivo_xlsx,
+                    file_name=nome_arquivo,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            with c_btn3:
+                if st.button("Sair", use_container_width=True):
+                    st.session_state["autenticado"] = False
+                    cookie_manager.delete("usuario_medicoes")
+                    st.rerun()
 
         # --- INDICADORES GERAIS ---
         total = len(df_filtrado)
@@ -295,13 +396,22 @@ if checar_login():
         m3.metric("Faltantes / Zeradas", faltantes)
         m4.metric("Valor Realizado", f"R$ {valor_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        # --- CONTAGEM DETALHADA EM BADGES COMPACTOS ---
+        # --- CONTAGEM DETALHADA EM BADGES COMPACTOS (COM ALERTA DE 2+ DIAS POR PESSOA) ---
         if not df_filtrado.empty:
             resumo_status = df_filtrado["STATUS"].value_counts().items()
-            badges_html = "".join([
-                f'<span class="status-badge">{st_nome}<span class="count">{qtd}</span></span>'
-                for st_nome, qtd in resumo_status
-            ])
+            atrasos_por_status = (
+                df_filtrado[df_filtrado["DIAS_PARADO"].fillna(-1) >= 2]["STATUS"]
+                .value_counts()
+                .to_dict()
+            )
+            badges_list = []
+            for st_nome, qtd in resumo_status:
+                qtd_atraso = atrasos_por_status.get(st_nome, 0)
+                badge_atraso = f'<span class="delay-count">⚠️ {qtd_atraso}</span>' if qtd_atraso > 0 else ""
+                badges_list.append(
+                    f'<span class="status-badge">{st_nome}<span class="count">{qtd}</span>{badge_atraso}</span>'
+                )
+            badges_html = "".join(badges_list)
             st.markdown(
                 f'<div class="status-container">'
                 f'<span class="status-title">📍 Quantidades na seleção atual ({total} total):</span>'
@@ -324,15 +434,25 @@ if checar_login():
                 return "background-color: #ffc107; color: black; font-weight: bold;"
             return ""
 
-        colunas_desejadas = [
-            "N° CONTRATO", "EMPRESA", "OBJETO", "VALOR_EXIBICAO",
-            "N° PERÍODO", "STATUS", "DATA", "ENV. FONECEDOR ?", "LANÇ. NO RM", "OBS.:"
-        ]
-        colunas_existentes = [c for c in colunas_desejadas if c in df_filtrado.columns]
-        df_exibir = df_filtrado[colunas_existentes].rename(columns={"VALOR_EXIBICAO": "VALOR REALIZADO"})
+        def colorir_tempo(val):
+            v = str(val)
+            if "dias" in v:
+                try:
+                    num = int(v.split()[0])
+                    if num >= 2:
+                        return "background-color: #fee2e2; color: #b91c1c; font-weight: bold;"
+                except ValueError:
+                    pass
+            return ""
+
+        estilo_tabela = (
+            df_exibir.style
+            .map(colorir_status, subset=["STATUS"])
+            .map(colorir_tempo, subset=["TEMPO"])
+        )
 
         evento_tabela = st.dataframe(
-            df_exibir.style.map(colorir_status, subset=["STATUS"]),
+            estilo_tabela,
             use_container_width=False,
             hide_index=True,
             height=550,
@@ -346,6 +466,7 @@ if checar_login():
                 "N° PERÍODO": st.column_config.TextColumn("N° PERÍODO", width="small"),
                 "STATUS": st.column_config.TextColumn("STATUS", width="medium"),
                 "DATA": st.column_config.TextColumn("DATA", width="small"),
+                "TEMPO": st.column_config.TextColumn("TEMPO", width="small"),
                 "ENV. FONECEDOR ?": st.column_config.TextColumn("ENV. FORN.?", width="small"),
                 "LANÇ. NO RM": st.column_config.TextColumn("LANÇ. RM", width="small"),
                 "OBS.:": st.column_config.TextColumn("OBS.:", width="large"),
@@ -366,6 +487,21 @@ if checar_login():
     # VISÃO B: FORNECEDOR (RESTRITA AO CONTRATO + % PROGRESSO)
     # ==========================================================
     else:
+        topo_esq, topo_dir = st.columns([4, 1])
+        with topo_esq:
+            st.title("📋 Acompanhamento de Medição")
+        with topo_dir:
+            c_btn1, c_btn2 = st.columns(2)
+            with c_btn1:
+                if st.button("🔄 Atualizar", use_container_width=True):
+                    st.cache_data.clear()
+                    st.rerun()
+            with c_btn2:
+                if st.button("Sair", use_container_width=True):
+                    st.session_state["autenticado"] = False
+                    cookie_manager.delete("usuario_medicoes")
+                    st.rerun()
+
         aba_selecionada = st.selectbox("Selecione o Período de Referência:", abas_disponiveis, index=idx_padrao)
         df = processar_aba(conteudo_excel, aba_selecionada)
 
@@ -390,7 +526,7 @@ if checar_login():
                 st.progress(pct / 100.0)
                 st.markdown(f"**Situação Atual:** {descricao_etapa} *(Atualizado em {row.get('DATA', '-')})*")
 
-                if pct == 75:
+                if pct == 65:
                     st.warning("Ação necessária: A medição já foi enviada e aguarda assinatura/retorno da sua empresa.")
                 elif pct == 100:
                     st.success("Processo de assinatura concluído e encaminhado ao setor Financeiro.")
