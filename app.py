@@ -11,9 +11,66 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilização visual fina para aproximar os cards e dar o acabamento premium do protótipo
+# Estilização visual fina para aproximar os cards e manter os botões coloridos
 st.markdown("""
     <style>
+    /* Caixa azulada que envolve os botões de status */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) {
+        background-color: #f0f4f8;
+        border-radius: 8px;
+        border-left: 4px solid #0d6efd;
+        padding: 12px 14px 10px 14px;
+        margin-bottom: 16px;
+        gap: 0.4rem !important;
+    }
+
+    /* Faz os botões de status ficarem compactos e quebrarem linha automaticamente */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) div[data-testid="column"] {
+        width: auto !important;
+        flex: 0 0 auto !important;
+        min-width: fit-content !important;
+    }
+
+    /* Botão não selecionado (cartão branco limpo com borda) */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="secondary"] {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 6px !important;
+        padding: 4px 10px !important;
+        min-height: 32px !important;
+        height: auto !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+        transition: all 0.15s ease;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="secondary"]:hover {
+        border-color: #0d6efd !important;
+        color: #0d6efd !important;
+        background-color: #eff6ff !important;
+    }
+
+    /* Botão selecionado (azul destaque vivo) */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="primary"] {
+        background-color: #0d6efd !important;
+        color: #ffffff !important;
+        border: 1px solid #0b5ed7 !important;
+        border-radius: 6px !important;
+        padding: 4px 10px !important;
+        min-height: 32px !important;
+        height: auto !important;
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        box-shadow: 0 2px 4px rgba(13,110,253,0.25) !important;
+    }
+
     /* Estilização para deixar os cards de métricas mais encorpados */
     [data-testid="stMetric"] {
         background-color: #ffffff;
@@ -116,7 +173,6 @@ def processar_aba(conteudo_bytes, nome_aba):
         if col in df.columns:
             df[col] = df[col].fillna("-").astype(str).str.strip()
 
-    # Converte datas mantendo referência numérica da coluna DATA para cálculo de dias corridos
     fuso_br = timezone(timedelta(hours=-3))
     hoje_br = datetime.now(fuso_br).date()
 
@@ -127,7 +183,6 @@ def processar_aba(conteudo_bytes, nome_aba):
         def calcular_dias(row, dt_val):
             st_upper = str(row.get("STATUS", "")).upper()
             vig_upper = str(row.get("VIGÊNCIA", "")).upper()
-            # Etapas já concluídas ou sem medição não contam atraso
             if (
                 pd.isna(dt_val)
                 or "FINANCEIRO" in st_upper
@@ -237,7 +292,7 @@ if checar_login():
     idx_padrao = abas_disponiveis.index(aba_padrao) if aba_padrao in abas_disponiveis else 0
 
     # ==========================================================
-    # VISÃO A: EQUIPE INTERNA (COMPLETA + FILTRO INCLUIR/EXCLUIR)
+    # VISÃO A: EQUIPE INTERNA (COMPLETA + BOTÕES COLORIDOS)
     # ==========================================================
     if eh_interno:
         st.sidebar.header("🔎 Filtros")
@@ -263,7 +318,7 @@ if checar_login():
             key="modo_status_radio"
         )
 
-        # Sincroniza cliques entre os botões do topo e o multiselect lateral
+        # Estado sincronizado entre os botões do topo e o multiselect lateral
         if "filtro_status_ativo" not in st.session_state:
             st.session_state["filtro_status_ativo"] = []
 
@@ -289,7 +344,7 @@ if checar_login():
         lista_objeto = ["Todos"] + sorted([x for x in df_base["OBJETO"].unique().tolist() if x != "-"])
         objeto_sel = st.sidebar.selectbox("Objeto", lista_objeto)
 
-        # Prepara base com busca, atraso e objeto para calcular os botões clicáveis do topo
+        # Base filtrada sem o filtro de status (para alimentar os botões do topo)
         df_para_contagem = df_base.copy()
         if busca:
             termo_c = busca.lower()
@@ -309,22 +364,12 @@ if checar_login():
             .to_dict()
         )
 
-        opcoes_pills = list(resumo_status.index)
+        opcoes_botoes = list(resumo_status.index)
         for s_sel in selecao_valida:
-            if s_sel not in opcoes_pills:
-                opcoes_pills.append(s_sel)
+            if s_sel not in opcoes_botoes:
+                opcoes_botoes.append(s_sel)
 
-        def formatar_botao_status(st_nome):
-            qtd = resumo_status.get(st_nome, 0)
-            qtd_atraso = atrasos_por_status.get(st_nome, 0)
-            if qtd_atraso > 0:
-                return f"{st_nome} ({qtd} | ⚠️ {qtd_atraso})"
-            return f"{st_nome} ({qtd})"
-
-        def atualizar_pelos_botoes():
-            st.session_state["filtro_status_ativo"] = st.session_state["pills_topo"]
-
-        # Aplica o filtro de status selecionado para gerar os dados finais da tela e do Excel
+        # Aplica o filtro de status selecionado para gerar os dados finais
         status_selecionados = st.session_state["filtro_status_ativo"]
         df_filtrado = df_para_contagem.copy()
         if status_selecionados:
@@ -341,7 +386,6 @@ if checar_login():
         colunas_existentes = [c for c in colunas_desejadas if c in df_filtrado.columns]
         df_exibir = df_filtrado[colunas_existentes].rename(columns={"VALOR_EXIBICAO": "VALOR REALIZADO"})
 
-        # Prepara versão numérica limpa para o Excel
         colunas_excel = [
             "N° CONTRATO", "EMPRESA", "OBJETO", "VIGÊNCIA", "INICIO", "FIM", "VALOR_NUM",
             "N° PERÍODO", "STATUS", "DATA", "TEMPO", "ENV. FONECEDOR ?", "LANÇ. NO RM", "OBS.:"
@@ -387,20 +431,39 @@ if checar_login():
         m3.metric("Faltantes / Zeradas", faltantes)
         m4.metric("Valor Realizado", f"R$ {valor_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        # --- BOTÕES CLICÁVEIS DE STATUS ---
-        if opcoes_pills:
-            modo_txt = "incluir" if modo_status == "Incluir apenas" else "excluir"
-            st.caption(f"📍 **Clique nos botões abaixo para {modo_txt} status ({len(df_para_contagem)} na base atual):**")
-            st.pills(
-                label="Filtrar por status",
-                options=opcoes_pills,
-                default=[s for s in selecao_valida if s in opcoes_pills],
-                selection_mode="multi",
-                key="pills_topo",
-                on_change=atualizar_pelos_botoes,
-                format_func=formatar_botao_status,
-                label_visibility="collapsed"
-            )
+        # --- CAIXA AZULADA COM BOTÕES CLICÁVEIS COLORIDOS ---
+        if opcoes_botoes:
+            with st.container():
+                st.markdown(
+                    f'<div class="status-box-marker" style="font-weight: 700; color: #1e293b; font-size: 0.9rem; margin-bottom: 4px;">'
+                    f'📍 Clique nos status abaixo para filtrar ({len(df_para_contagem)} na base atual):'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                cols_botoes = st.columns(len(opcoes_botoes))
+                for idx_b, st_nome in enumerate(opcoes_botoes):
+                    qtd = resumo_status.get(st_nome, 0)
+                    qtd_atraso = atrasos_por_status.get(st_nome, 0)
+                    ativo = st_nome in selecao_valida
+
+                    if qtd_atraso > 0:
+                        rotulo = f"{st_nome}  •  🔵 {qtd}  |  🔴 ⚠️ {qtd_atraso}"
+                    else:
+                        rotulo = f"{st_nome}  •  🔵 {qtd}"
+
+                    with cols_botoes[idx_b]:
+                        if st.button(
+                            rotulo,
+                            key=f"btn_st_{idx_b}_{st_nome}",
+                            type="primary" if ativo else "secondary"
+                        ):
+                            nova_lista = list(st.session_state["filtro_status_ativo"])
+                            if ativo:
+                                nova_lista.remove(st_nome)
+                            else:
+                                nova_lista.append(st_nome)
+                            st.session_state["filtro_status_ativo"] = nova_lista
+                            st.rerun()
 
         st.divider()
 
