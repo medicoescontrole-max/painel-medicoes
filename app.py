@@ -11,69 +11,55 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilização visual fina para manter as etiquetas compactas, coloridas e sem recarregar a página
+# Estilização visual fina para aproximar os cards e dar o acabamento premium do protótipo
 st.markdown("""
     <style>
-    /* Caixa azulada que envolve os botões de status */
-    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) {
+    /* Estilo para a barra compacta de status */
+    .status-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px 14px;
         background-color: #f0f4f8;
         border-radius: 8px;
         border-left: 4px solid #0d6efd;
-        padding: 10px 14px;
-        margin-bottom: 18px;
-        gap: 6px !important;
+        margin-bottom: 20px;
+        align-items: center;
     }
-
-    /* Faz os botões quebrarem linha naturalmente sem espremer texto */
-    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) div[data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-wrap: wrap !important;
-        gap: 6px !important;
-        align-items: center !important;
+    .status-title {
+        font-weight: bold;
+        color: #1e293b;
+        margin-right: 8px;
+        font-size: 0.9rem;
     }
-    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) div[data-testid="column"] {
-        width: auto !important;
-        flex: 0 0 auto !important;
-        min-width: auto !important;
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        background-color: #ffffff;
+        color: #475569;
+        font-size: 0.8rem;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 6px;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
-
-    /* Estilo de etiqueta branca compacta (não selecionada) */
-    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="secondary"] {
-        background-color: #ffffff !important;
-        color: #334155 !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 6px !important;
-        padding: 2px 9px !important;
-        min-height: 28px !important;
-        height: 28px !important;
-        line-height: 1 !important;
-        font-size: 0.8rem !important;
-        font-weight: 600 !important;
-        white-space: nowrap !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+    .status-badge .count {
+        background-color: #3b82f6;
+        color: #ffffff;
+        font-size: 0.75rem;
+        border-radius: 4px;
+        padding: 0px 5px;
+        margin-left: 5px;
     }
-    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="secondary"]:hover {
-        border-color: #3b82f6 !important;
-        background-color: #eff6ff !important;
-        color: #1d4ed8 !important;
+    .status-badge .delay-count {
+        background-color: #dc2626;
+        color: #ffffff;
+        font-size: 0.75rem;
+        border-radius: 4px;
+        padding: 0px 5px;
+        margin-left: 4px;
     }
-
-    /* Estilo de etiqueta selecionada (destaque azul) */
-    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="primary"] {
-        background-color: #dbeafe !important;
-        color: #1e3a8a !important;
-        border: 1.5px solid #2563eb !important;
-        border-radius: 6px !important;
-        padding: 2px 9px !important;
-        min-height: 28px !important;
-        height: 28px !important;
-        line-height: 1 !important;
-        font-size: 0.8rem !important;
-        font-weight: 700 !important;
-        white-space: nowrap !important;
-        box-shadow: 0 1px 2px rgba(37,99,235,0.2) !important;
-    }
-
     /* Estilização para deixar os cards de métricas mais encorpados */
     [data-testid="stMetric"] {
         background-color: #ffffff;
@@ -106,14 +92,13 @@ cookie_manager = stx.CookieManager(key="gerenciador_sessao")
 def checar_login():
     usuarios_validos = st.secrets.get("usuarios", {})
 
-    if st.session_state.get("autenticado", False):
-        return True
-
-    cookies_carregados = cookie_manager.get_all()
-    usuario_cookie = cookies_carregados.get("usuario_medicoes") if cookies_carregados else None
+    usuario_cookie = cookie_manager.get(cookie="usuario_medicoes")
     if usuario_cookie and usuario_cookie in usuarios_validos:
         st.session_state["autenticado"] = True
         st.session_state["usuario_atual"] = usuario_cookie
+        return True
+
+    if st.session_state.get("autenticado", False):
         return True
 
     col1, col2, col3 = st.columns([1, 1.2, 1])
@@ -177,6 +162,7 @@ def processar_aba(conteudo_bytes, nome_aba):
         if col in df.columns:
             df[col] = df[col].fillna("-").astype(str).str.strip()
 
+    # Converte datas mantendo referência numérica da coluna DATA para cálculo de dias corridos
     fuso_br = timezone(timedelta(hours=-3))
     hoje_br = datetime.now(fuso_br).date()
 
@@ -187,6 +173,7 @@ def processar_aba(conteudo_bytes, nome_aba):
         def calcular_dias(row, dt_val):
             st_upper = str(row.get("STATUS", "")).upper()
             vig_upper = str(row.get("VIGÊNCIA", "")).upper()
+            # Etapas já concluídas ou sem medição não contam atraso
             if (
                 pd.isna(dt_val)
                 or "FINANCEIRO" in st_upper
@@ -296,7 +283,7 @@ if checar_login():
     idx_padrao = abas_disponiveis.index(aba_padrao) if aba_padrao in abas_disponiveis else 0
 
     # ==========================================================
-    # VISÃO A: EQUIPE INTERNA (COMPLETA + ETIQUETAS CLICÁVEIS)
+    # VISÃO A: EQUIPE INTERNA (COMPLETA + FILTRO INCLUIR/EXCLUIR)
     # ==========================================================
     if eh_interno:
         st.sidebar.header("🔎 Filtros")
@@ -314,29 +301,16 @@ if checar_login():
         contagem_base = df_base["STATUS"].value_counts().to_dict()
         lista_status = sorted(contagem_base.keys())
 
-        if "filtro_status_ativo" not in st.session_state:
-            st.session_state["filtro_status_ativo"] = []
-
-        selecao_valida = [s for s in st.session_state["filtro_status_ativo"] if s in lista_status]
-        st.session_state["filtro_status_ativo"] = selecao_valida
-
         st.sidebar.markdown("---")
         modo_status = st.sidebar.radio(
             "Filtro de Status / Localização",
             ["Incluir apenas", "Excluir selecionados"],
-            horizontal=True,
-            key="modo_status_radio"
+            horizontal=True
         )
-
-        def atualizar_pelo_lateral():
-            st.session_state["filtro_status_ativo"] = st.session_state["ms_lateral"]
-
-        st.sidebar.multiselect(
+        status_selecionados = st.sidebar.multiselect(
             "Selecione um ou mais status:",
             options=lista_status,
-            default=selecao_valida,
-            key="ms_lateral",
-            on_change=atualizar_pelo_lateral,
+            default=[],
             format_func=lambda s: f"{s} ({contagem_base.get(s, 0)})",
             placeholder="Todos (nenhum filtro aplicado)"
         )
@@ -347,27 +321,26 @@ if checar_login():
         lista_objeto = ["Todos"] + sorted([x for x in df_base["OBJETO"].unique().tolist() if x != "-"])
         objeto_sel = st.sidebar.selectbox("Objeto", lista_objeto)
 
-        # Base intermediária (sem filtro de status) para mostrar os badges clicáveis
-        df_sem_status = df_base.copy()
+        # Aplicação dos filtros
+        df_filtrado = df_base.copy()
         if busca:
             termo = busca.lower()
-            df_sem_status = df_sem_status[
-                df_sem_status["N° CONTRATO"].str.lower().str.contains(termo) |
-                df_sem_status["EMPRESA"].str.lower().str.contains(termo)
+            df_filtrado = df_filtrado[
+                df_filtrado["N° CONTRATO"].str.lower().str.contains(termo) |
+                df_filtrado["EMPRESA"].str.lower().str.contains(termo)
             ]
-        if apenas_atrasados:
-            df_sem_status = df_sem_status[df_sem_status["DIAS_PARADO"].fillna(-1) >= 2]
-        if objeto_sel != "Todos":
-            df_sem_status = df_sem_status[df_sem_status["OBJETO"] == objeto_sel]
 
-        # Aplicação do filtro de status selecionado
-        status_selecionados = st.session_state["filtro_status_ativo"]
-        df_filtrado = df_sem_status.copy()
         if status_selecionados:
             if modo_status == "Incluir apenas":
                 df_filtrado = df_filtrado[df_filtrado["STATUS"].isin(status_selecionados)]
             else:
                 df_filtrado = df_filtrado[~df_filtrado["STATUS"].isin(status_selecionados)]
+
+        if apenas_atrasados:
+            df_filtrado = df_filtrado[df_filtrado["DIAS_PARADO"].fillna(-1) >= 2]
+
+        if objeto_sel != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["OBJETO"] == objeto_sel]
 
         # Prepara colunas para exibição e exportação
         colunas_desejadas = [
@@ -377,6 +350,7 @@ if checar_login():
         colunas_existentes = [c for c in colunas_desejadas if c in df_filtrado.columns]
         df_exibir = df_filtrado[colunas_existentes].rename(columns={"VALOR_EXIBICAO": "VALOR REALIZADO"})
 
+        # Prepara versão numérica limpa para o Excel
         colunas_excel = [
             "N° CONTRATO", "EMPRESA", "OBJETO", "VIGÊNCIA", "INICIO", "FIM", "VALOR_NUM",
             "N° PERÍODO", "STATUS", "DATA", "TEMPO", "ENV. FONECEDOR ?", "LANÇ. NO RM", "OBS.:"
@@ -422,45 +396,29 @@ if checar_login():
         m3.metric("Faltantes / Zeradas", faltantes)
         m4.metric("Valor Realizado", f"R$ {valor_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        # --- ETIQUETAS COMPACTAS CLICÁVEIS (SEM RECARREGAR A PÁGINA) ---
-        if not df_sem_status.empty or selecao_valida:
-            resumo_status = df_sem_status["STATUS"].value_counts()
+        # --- CONTAGEM DETALHADA EM BADGES COMPACTOS (COM ALERTA DE 2+ DIAS POR PESSOA) ---
+        if not df_filtrado.empty:
+            resumo_status = df_filtrado["STATUS"].value_counts().items()
             atrasos_por_status = (
-                df_sem_status[df_sem_status["DIAS_PARADO"].fillna(-1) >= 2]["STATUS"]
+                df_filtrado[df_filtrado["DIAS_PARADO"].fillna(-1) >= 2]["STATUS"]
                 .value_counts()
                 .to_dict()
             )
-            itens_exibir = list(resumo_status.items())
-            for s_sel in selecao_valida:
-                if s_sel not in resumo_status.index:
-                    itens_exibir.append((s_sel, 0))
-
-            with st.container():
-                st.markdown(
-                    f'<div class="status-box-marker" style="font-weight: 700; color: #1e293b; font-size: 0.9rem;">'
-                    f'📍 Quantidades na seleção atual ({total} total):'
-                    f'</div>',
-                    unsafe_allow_html=True
+            badges_list = []
+            for st_nome, qtd in resumo_status:
+                qtd_atraso = atrasos_por_status.get(st_nome, 0)
+                badge_atraso = f'<span class="delay-count">⚠️ {qtd_atraso}</span>' if qtd_atraso > 0 else ""
+                badges_list.append(
+                    f'<span class="status-badge">{st_nome}<span class="count">{qtd}</span>{badge_atraso}</span>'
                 )
-                cols_badges = st.columns(len(itens_exibir))
-                for idx_b, (st_nome, qtd) in enumerate(itens_exibir):
-                    qtd_atraso = atrasos_por_status.get(st_nome, 0)
-                    ativo = st_nome in selecao_valida
-                    rotulo = f"{st_nome}  [{qtd} | ⚠️ {qtd_atraso}]" if qtd_atraso > 0 else f"{st_nome}  [{qtd}]"
-
-                    with cols_badges[idx_b]:
-                        if st.button(
-                            rotulo,
-                            key=f"badge_btn_{idx_b}_{st_nome}",
-                            type="primary" if ativo else "secondary"
-                        ):
-                            nova_lista = list(st.session_state["filtro_status_ativo"])
-                            if ativo:
-                                nova_lista.remove(st_nome)
-                            else:
-                                nova_lista.append(st_nome)
-                            st.session_state["filtro_status_ativo"] = nova_lista
-                            st.rerun()
+            badges_html = "".join(badges_list)
+            st.markdown(
+                f'<div class="status-container">'
+                f'<span class="status-title">📍 Quantidades na seleção atual ({total} total):</span>'
+                f'{badges_html}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
         st.divider()
 
