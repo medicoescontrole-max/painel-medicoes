@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 from io import BytesIO
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
 import extra_streamlit_components as stx
 
 st.set_page_config(
@@ -12,69 +11,69 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilização visual fina para aproximar os cards e manter as etiquetas exatas da primeira imagem
+# Estilização visual fina para manter as etiquetas compactas, coloridas e sem recarregar a página
 st.markdown("""
     <style>
-    /* Estilo para a barra compacta de status */
-    .status-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 10px 14px;
+    /* Caixa azulada que envolve os botões de status */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) {
         background-color: #f0f4f8;
         border-radius: 8px;
         border-left: 4px solid #0d6efd;
-        margin-bottom: 20px;
-        align-items: center;
+        padding: 10px 14px;
+        margin-bottom: 18px;
+        gap: 6px !important;
     }
-    .status-title {
-        font-weight: bold;
-        color: #1e293b;
-        margin-right: 8px;
-        font-size: 0.9rem;
+
+    /* Faz os botões quebrarem linha naturalmente sem espremer texto */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        align-items: center !important;
     }
-    a.status-badge {
-        display: inline-flex;
-        align-items: center;
-        background-color: #ffffff;
-        color: #475569 !important;
-        text-decoration: none !important;
-        font-size: 0.8rem;
-        font-weight: 600;
-        padding: 3px 8px;
-        border-radius: 6px;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        cursor: pointer;
-        transition: all 0.15s ease;
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) div[data-testid="column"] {
+        width: auto !important;
+        flex: 0 0 auto !important;
+        min-width: auto !important;
     }
-    a.status-badge:hover {
-        border-color: #3b82f6;
-        background-color: #eff6ff;
-        transform: translateY(-1px);
+
+    /* Estilo de etiqueta branca compacta (não selecionada) */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="secondary"] {
+        background-color: #ffffff !important;
+        color: #334155 !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 6px !important;
+        padding: 2px 9px !important;
+        min-height: 28px !important;
+        height: 28px !important;
+        line-height: 1 !important;
+        font-size: 0.8rem !important;
+        font-weight: 600 !important;
+        white-space: nowrap !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
     }
-    a.status-badge.active {
-        background-color: #dbeafe;
-        border-color: #2563eb;
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="secondary"]:hover {
+        border-color: #3b82f6 !important;
+        background-color: #eff6ff !important;
+        color: #1d4ed8 !important;
+    }
+
+    /* Estilo de etiqueta selecionada (destaque azul) */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container .status-box-marker) button[kind="primary"] {
+        background-color: #dbeafe !important;
         color: #1e3a8a !important;
-        box-shadow: 0 0 0 1px #2563eb;
+        border: 1.5px solid #2563eb !important;
+        border-radius: 6px !important;
+        padding: 2px 9px !important;
+        min-height: 28px !important;
+        height: 28px !important;
+        line-height: 1 !important;
+        font-size: 0.8rem !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+        box-shadow: 0 1px 2px rgba(37,99,235,0.2) !important;
     }
-    .status-badge .count {
-        background-color: #3b82f6;
-        color: #ffffff;
-        font-size: 0.75rem;
-        border-radius: 4px;
-        padding: 0px 5px;
-        margin-left: 5px;
-    }
-    .status-badge .delay-count {
-        background-color: #dc2626;
-        color: #ffffff;
-        font-size: 0.75rem;
-        border-radius: 4px;
-        padding: 0px 5px;
-        margin-left: 4px;
-    }
+
     /* Estilização para deixar os cards de métricas mais encorpados */
     [data-testid="stMetric"] {
         background-color: #ffffff;
@@ -107,13 +106,14 @@ cookie_manager = stx.CookieManager(key="gerenciador_sessao")
 def checar_login():
     usuarios_validos = st.secrets.get("usuarios", {})
 
-    usuario_cookie = cookie_manager.get(cookie="usuario_medicoes")
+    if st.session_state.get("autenticado", False):
+        return True
+
+    cookies_carregados = cookie_manager.get_all()
+    usuario_cookie = cookies_carregados.get("usuario_medicoes") if cookies_carregados else None
     if usuario_cookie and usuario_cookie in usuarios_validos:
         st.session_state["autenticado"] = True
         st.session_state["usuario_atual"] = usuario_cookie
-        return True
-
-    if st.session_state.get("autenticado", False):
         return True
 
     col1, col2, col3 = st.columns([1, 1.2, 1])
@@ -177,7 +177,6 @@ def processar_aba(conteudo_bytes, nome_aba):
         if col in df.columns:
             df[col] = df[col].fillna("-").astype(str).str.strip()
 
-    # Converte datas mantendo referência numérica da coluna DATA para cálculo de dias corridos
     fuso_br = timezone(timedelta(hours=-3))
     hoje_br = datetime.now(fuso_br).date()
 
@@ -318,17 +317,6 @@ if checar_login():
         if "filtro_status_ativo" not in st.session_state:
             st.session_state["filtro_status_ativo"] = []
 
-        # Captura clique direto nas etiquetas HTML via query param
-        if "toggle_status" in st.query_params:
-            st_clicado = st.query_params["toggle_status"]
-            del st.query_params["toggle_status"]
-            lista_atual = list(st.session_state["filtro_status_ativo"])
-            if st_clicado in lista_atual:
-                lista_atual.remove(st_clicado)
-            elif st_clicado in lista_status:
-                lista_atual.append(st_clicado)
-            st.session_state["filtro_status_ativo"] = lista_atual
-
         selecao_valida = [s for s in st.session_state["filtro_status_ativo"] if s in lista_status]
         st.session_state["filtro_status_ativo"] = selecao_valida
 
@@ -359,7 +347,7 @@ if checar_login():
         lista_objeto = ["Todos"] + sorted([x for x in df_base["OBJETO"].unique().tolist() if x != "-"])
         objeto_sel = st.sidebar.selectbox("Objeto", lista_objeto)
 
-        # Base intermediária (sem filtro de status) para mostrar todos os badges clicáveis
+        # Base intermediária (sem filtro de status) para mostrar os badges clicáveis
         df_sem_status = df_base.copy()
         if busca:
             termo = busca.lower()
@@ -434,7 +422,7 @@ if checar_login():
         m3.metric("Faltantes / Zeradas", faltantes)
         m4.metric("Valor Realizado", f"R$ {valor_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        # --- CONTAGEM DETALHADA EM BADGES COMPACTOS CLICÁVEIS (VISUAL IDÊNTICO À 1ª IMAGEM) ---
+        # --- ETIQUETAS COMPACTAS CLICÁVEIS (SEM RECARREGAR A PÁGINA) ---
         if not df_sem_status.empty or selecao_valida:
             resumo_status = df_sem_status["STATUS"].value_counts()
             atrasos_por_status = (
@@ -447,25 +435,32 @@ if checar_login():
                 if s_sel not in resumo_status.index:
                     itens_exibir.append((s_sel, 0))
 
-            badges_list = []
-            for st_nome, qtd in itens_exibir:
-                qtd_atraso = atrasos_por_status.get(st_nome, 0)
-                badge_atraso = f'<span class="delay-count">⚠️ {qtd_atraso}</span>' if qtd_atraso > 0 else ""
-                classe_ativa = " active" if st_nome in selecao_valida else ""
-                href = f"?toggle_status={quote(st_nome)}"
-                badges_list.append(
-                    f'<a href="{href}" target="_self" class="status-badge{classe_ativa}">'
-                    f'{st_nome}<span class="count">{qtd}</span>{badge_atraso}'
-                    f'</a>'
+            with st.container():
+                st.markdown(
+                    f'<div class="status-box-marker" style="font-weight: 700; color: #1e293b; font-size: 0.9rem;">'
+                    f'📍 Quantidades na seleção atual ({total} total):'
+                    f'</div>',
+                    unsafe_allow_html=True
                 )
-            badges_html = "".join(badges_list)
-            st.markdown(
-                f'<div class="status-container">'
-                f'<span class="status-title">📍 Quantidades na seleção atual ({total} total):</span>'
-                f'{badges_html}'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+                cols_badges = st.columns(len(itens_exibir))
+                for idx_b, (st_nome, qtd) in enumerate(itens_exibir):
+                    qtd_atraso = atrasos_por_status.get(st_nome, 0)
+                    ativo = st_nome in selecao_valida
+                    rotulo = f"{st_nome}  [{qtd} | ⚠️ {qtd_atraso}]" if qtd_atraso > 0 else f"{st_nome}  [{qtd}]"
+
+                    with cols_badges[idx_b]:
+                        if st.button(
+                            rotulo,
+                            key=f"badge_btn_{idx_b}_{st_nome}",
+                            type="primary" if ativo else "secondary"
+                        ):
+                            nova_lista = list(st.session_state["filtro_status_ativo"])
+                            if ativo:
+                                nova_lista.remove(st_nome)
+                            else:
+                                nova_lista.append(st_nome)
+                            st.session_state["filtro_status_ativo"] = nova_lista
+                            st.rerun()
 
         st.divider()
 
